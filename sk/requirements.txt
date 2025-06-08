@@ -1,10 +1,6 @@
 streamlit==1.33.0
-sqlite3 (built-in in Python, no pip install needed, but good to note)
-transformers==4.39.3
-torch==2.2.2 # For transformers, you might need a specific torch version or just rely on transformers' minimal
-sentencepiece # For some tokenizer models
 numpy
 scipy
-pandas # If used for any data processing
-# openai # Uncomment if using OpenAI API
-# google-generativeai # Uncomment if using actual Google Gemini API
+pandas
+# google-generativeai
+# torch
