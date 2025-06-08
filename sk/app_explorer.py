@@ -1,160 +1,96 @@
-import sqlite3
-import datetime
-import os
-import streamlit as st  # Added for UI rendering
+import streamlit as st
 import google.generativeai as genai
+import os
+import sys
 
-# Database path - dynamically set based on where it's run
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # superbot/
-DB_PATH = os.path.join(BASE_DIR, 'db', "narrative_memory.db")
+# Add the 'sk' directory to the Python path
+# This allows importing modules from 'sk' like identity_engine
+# Assuming 'app.py' is in the root and 'identity_engine.py' is in 'sk/autonomy'
+sys.path.append(os.path.join(os.path.dirname(__file__), 'sk'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'sk', 'autonomy'))
 
-# Ensure the directory exists
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+# Import from identity_engine.py
+from identity_engine import get_gemini_model, log_narrative_event, get_personality_traits, identity_evolution, render_ui
 
-# Google Gemini API key Streamlit secrets se load karein
-# Iske liye aapko Streamlit Cloud secrets mein GEMINI_API_KEY add karna hoga
-API_KEY = os.getenv("GEMINI_API_KEY")
+# --- Streamlit UI for Chatbot ---
+st.set_page_config(page_title="Super-Bot AI", layout="centered")
 
-@st.cache_resource
-def get_gemini_model():
-    if not API_KEY:
-        st.error("Google Gemini API Key not found. Please add GEMINI_API_KEY to Streamlit secrets.")
-        return None
-    genai.configure(api_key=API_KEY)
-    # Aap 'gemini-pro', 'gemini-1.5-flash', ya 'gemini-1.5-pro' use kar sakte hain
-    return genai.GenerativeModel('gemini-pro')
+st.title("🤖 Super-Bot AI: Your Personalized Companion")
 
+# Initialize Gemini Model
 gemini_model = get_gemini_model()
 
-def init_narrative_db_if_not_exists():
-    """Initializes the database if it doesn't exist."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+if gemini_model is None:
+    st.warning("Cannot initialize Super-Bot. Please ensure GEMINI_API_KEY is set in Streamlit secrets.")
+else:
+    # Initialize chat history in session state
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+        # Add a welcome message from the bot
+        st.session_state.messages.append({"role": "assistant", "content": "Hello! How can I help you today?"})
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS narrative_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            type TEXT,
-            content TEXT
-        )
-    """)
+    # Display chat messages from history on app rerun
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS personality_traits (
-            trait TEXT PRIMARY KEY,
-            value REAL
-        )
-    """)
+    # Accept user input
+    if prompt := st.chat_input("Ask Super-Bot anything..."):
+        # Add user message to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    default_traits = {
-        "empathy": 0.5,
-        "curiosity": 0.5,
-        "caution": 0.5,
-        "humor": 0.5,
-        "confidence": 0.5
-    }
-
-    for trait, val in default_traits.items():
-        cursor.execute("INSERT OR IGNORE INTO personality_traits (trait, value) VALUES (?, ?)", (trait, val))
-
-    conn.commit()
-    conn.close()
-
-# Ensure DB is initialized when module is loaded (for Streamlit Cloud)
-init_narrative_db_if_not_exists()
-
-# Log life events
-def log_narrative_event(event_type, content):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO narrative_log (timestamp, type, content) VALUES (?, ?, ?)", (
-        datetime.datetime.now().isoformat(),
-        event_type,
-        content
-    ))
-    conn.commit()
-    conn.close()
-
-# Fetch and return current traits
-def get_personality_traits():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT trait, value FROM personality_traits")
-    traits = {row[0]: row[1] for row in cursor.fetchall()}
-    conn.close()
-    return traits
-
-# Update traits from introspection
-def identity_evolution():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT content FROM narrative_log ORDER BY id DESC LIMIT 10")
-    logs = [row[0] for row in cursor.fetchall()]
-
-    prompt = f"""Based on these recent reflections and experiences:\n{logs}\nSuggest how the AI's personality traits (empathy, curiosity, humor, caution, confidence) should evolve. Provide specific delta values for each trait (e.g., empathy: +0.02, curiosity: -0.01)."""
-
-    # Use the pre-loaded Gemini model
-    if gemini_model:
-        response = gemini_model.generate_content(prompt)
-        analysis_text = response.text
-    else:
-        analysis_text = "Error: Gemini model not loaded due to missing API key. Please check Streamlit secrets."
-
-    # Simulated parsing for delta (you'd use NLP to extract from analysis_text)
-    # For demo, we'll apply a fixed or simple logic
-    delta = {}
-
-    # Example simple parsing: look for "trait: [+/-]value" patterns
-    for line in analysis_text.split('\n'):
-        for trait_name in ["empathy", "curiosity", "caution", "humor", "confidence"]:
-            if f"{trait_name}:" in line.lower():
+        with st.chat_message("assistant"):
+            with st.spinner("Super-Bot is thinking..."):
                 try:
-                    val_str = line.split(f"{trait_name}:")[1].strip().split(' ')[0]
-                    delta[trait_name] = float(val_str)
-                except ValueError:
-                    pass  # Ignore if parsing fails
+                    # Generate response using Gemini
+                    # Combine history for context (simplified for this example)
+                    # For complex conversations, you might need to manage tokens carefully
+                    chat_history_for_gemini = [
+                        {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
+                        for m in st.session_state.messages
+                        if m["role"] != "welcome" # Exclude welcome message from Gemini context
+                    ]
+                    
+                    # Ensure the prompt is the last message for Gemini
+                    if chat_history_for_gemini and chat_history_for_gemini[-1]["parts"][0] != prompt:
+                         chat_history_for_gemini.append({"role": "user", "parts": [prompt]})
 
-    # If no delta extracted, use a default
-    if not delta:
-        delta = {
-            "empathy": 0.01,
-            "curiosity": 0.005,
-            "caution": -0.005,
-            "humor": 0.015,
-            "confidence": 0.01
-        }
+                    # Start chat with existing history or just prompt if no history
+                    if len(chat_history_for_gemini) > 1:
+                        # Ensure the last part is the user's current prompt
+                        # Initialize a chat session from the model
+                        chat = gemini_model.start_chat(history=chat_history_for_gemini[:-1]) # Pass all but the last user prompt
+                        response = chat.send_message(prompt) # Send the current prompt
+                    else:
+                        response = gemini_model.generate_content(prompt) # First message or no history
 
-    for trait, change in delta.items():
-        cursor.execute("UPDATE personality_traits SET value = MAX(0.0, MIN(1.0, value + ?)) WHERE trait = ?", (change, trait))
+                    full_response = response.text
+                    st.markdown(full_response)
+                    st.session_state.messages.append({"role": "assistant", "content": full_response})
 
-    conn.commit()
-    conn.close()
-    return analysis_text  # Return the LLM's full analysis
+                    # Log interaction to narrative memory
+                    log_narrative_event("chat_interaction", f"User: {prompt}\nBot: {full_response}")
 
-# UI Rendering for Streamlit
-def render_ui():
-    st.subheader("🧬 AI Personality Traits")
-    traits = get_personality_traits()
-    st.bar_chart({t: traits[t] for t in traits if t in ["empathy", "curiosity", "caution", "humor", "confidence"]})  # Ensure order/valid traits
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
+                    st.session_state.messages.append({"role": "assistant", "content": "Sorry, I'm having trouble responding right now."})
 
-    st.subheader("📜 Narrative Memory (Recent Logs)")
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT timestamp, type, content FROM narrative_log ORDER BY id DESC LIMIT 10")
-    logs = cursor.fetchall()
-    conn.close()
+# --- Separator for UI Sections ---
+st.markdown("---")
 
-    if logs:
-        for row in logs:
-            st.markdown(f"**{row[0]}** — *{row[1]}*")
-            st.code(row[2], language="markdown")  # <--- Yahan theek kiya gaya hai
-    else:
-        st.info("No narrative logs yet. Interact with Super-Bot to generate some!")
+# --- Personality & Narrative UI ---
+# Display identity_engine UI
+st.subheader("⚙️ Super-Bot's Internal State")
+render_ui() # Call the UI rendering function from identity_engine
 
-    st.subheader("🔄 Trigger Identity Evolution")
-    if st.button("Evolve AI's Personality"):
-        with st.spinner("Analyzing past narratives and evolving identity..."):
-            analysis_text = identity_evolution()
-        st.success("Personality evolved!")
-        st.write(analysis_text)
+# --- Instructions for API Key ---
+st.sidebar.markdown("### 🔑 API Key Setup")
+st.sidebar.info(
+    "To use Super-Bot, please ensure your Google Gemini API Key is added to "
+    "Streamlit secrets as `GEMINI_API_KEY`."
+)
+st.sidebar.markdown(
+    "Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)."
+)
