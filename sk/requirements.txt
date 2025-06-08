@@ -2,5 +2,6 @@ streamlit==1.33.0
 numpy
 scipy
 pandas
-# google-generativeai
-# torch
+transformers==4.30.0  # Yeh line add karein
+# google-generativeai # Commented out rakhein agar use nahi kar rahe hain
+# torch # Commented out rakhein
